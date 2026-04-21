@@ -403,7 +403,7 @@ const Shifts = ({ shifts, onAdd }) => {
       alert('Permission: ' + perm);
     }
   };
- Kinder balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス bank balance balance balance balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス balance balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス balance 1バランス 1バランス balance 1バランス balance 1バランス balance 1"バランス
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fade-in">
       <div className="heading-row">
