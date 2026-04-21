@@ -1,0 +1,17 @@
+{
+  "name": "ShiftMate 2.0",
+  "short_name": "ShiftMate",
+  "description": "Premium Kuwait Employee Companion",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0E17",
+  "theme_color": "#0A0E17",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
