@@ -18,6 +18,8 @@ import {
   Trash2
 } from 'lucide-react';
 
+import { supabase } from '../lib/supabase';
+
 /* --- Core App Component --- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -31,26 +33,53 @@ export default function App() {
   const [docs, setDocs] = useState([]);
   const [vaultId, setVaultId] = useState(null);
 
+  // Initial Data Load & Supabase Sync
   useEffect(() => {
-    const savedUser = localStorage.getItem('sm_user');
-    if (savedUser) {
-      const u = JSON.parse(savedUser);
-      setUser(u);
-      setShifts(JSON.parse(localStorage.getItem(`sm_shifts_${u.email}`) || '[]'));
-      setDocs(JSON.parse(localStorage.getItem(`sm_docs_${u.email}`) || '[]'));
-      setVaultId(localStorage.getItem(`sm_vault_id_${u.email}`));
-      setVault(JSON.parse(localStorage.getItem(`sm_vault_data_${u.email}`) || '[]'));
-    }
-    setLoading(false);
+    const init = async () => {
+      const savedUser = localStorage.getItem('sm_user');
+      if (savedUser) {
+        const u = JSON.parse(savedUser);
+        setUser(u);
+        const vId = localStorage.getItem(`sm_vault_id_${u.email}`);
+        setVaultId(vId);
+
+        if (supabase) {
+          const { data: sData } = await supabase.from('shifts').select('*').eq('user_email', u.email).order('created_at', { ascending: false });
+          if (sData) setShifts(sData);
+
+          const { data: dData } = await supabase.from('documents').select('*').eq('user_email', u.email);
+          if (dData) setDocs(dData.map(d => ({ ...d, daysLeft: Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) })));
+
+          if (vId) fetchVault(vId);
+        } else {
+          setShifts(JSON.parse(localStorage.getItem(`sm_shifts_${u.email}`) || '[]'));
+          setDocs(JSON.parse(localStorage.getItem(`sm_docs_${u.email}`) || '[]'));
+          setVault(JSON.parse(localStorage.getItem(`sm_vault_data_${u.email}`) || '[]'));
+        }
+      }
+      setLoading(false);
+    };
+    init();
   }, []);
+
+  const fetchVault = async (vId) => {
+    if (!supabase) return;
+    const { data } = await supabase.from('vault_transactions').select('*').eq('vault_id', vId).order('created_at', { ascending: false });
+    if (data) setVault(data.map(v => ({ ...v, amt: v.amount, desc: v.description, date: new Date(v.created_at).toLocaleDateString() })));
+  };
+
+  useEffect(() => {
+    if (!supabase || !vaultId) return;
+    const channel = supabase.channel('vault_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vault_transactions', filter: `vault_id=eq.${vaultId}` }, () => fetchVault(vaultId))
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [vaultId]);
 
   const handleLogin = (u) => {
     setUser(u);
     localStorage.setItem('sm_user', JSON.stringify(u));
-    setShifts(JSON.parse(localStorage.getItem(`sm_shifts_${u.email}`) || '[]'));
-    setDocs(JSON.parse(localStorage.getItem(`sm_docs_${u.email}`) || '[]'));
-    setVaultId(localStorage.getItem(`sm_vault_id_${u.email}`));
-    setVault(JSON.parse(localStorage.getItem(`sm_vault_data_${u.email}`) || '[]'));
+    window.location.reload();
   };
 
   const handleLogout = () => {
@@ -62,42 +91,70 @@ export default function App() {
   const connectVault = (id) => {
     setVaultId(id);
     localStorage.setItem(`sm_vault_id_${user.email}`, id);
+    if (id && supabase) fetchVault(id);
   };
 
-  const addShifts = (batch) => {
-    setShifts(prev => {
-      const batchDays = batch.map(b => b.day);
-      const filtered = prev.filter(s => !batchDays.includes(s.day));
-      const updated = [...filtered, ...batch.map(s => ({ ...s, id: Math.random() }))];
-      localStorage.setItem(`sm_shifts_${user.email}`, JSON.stringify(updated));
-      return updated;
-    });
+  const addShifts = async (batch) => {
+    if (supabase) {
+      const days = batch.map(b => b.day);
+      await supabase.from('shifts').delete().eq('user_email', user.email).in('day', days);
+      const toInsert = batch.map(b => ({
+        user_email: user.email, title: b.title, time: b.time, type: b.type, day: b.day, date_label: b.dateLabel, notif: b.notif
+      }));
+      const { data } = await supabase.from('shifts').insert(toInsert).select();
+      if (data) setShifts(prev => [...prev.filter(s => !days.includes(s.day)), ...data]);
+    } else {
+      setShifts(prev => {
+        const batchDays = batch.map(b => b.day);
+        const filtered = prev.filter(s => !batchDays.includes(s.day));
+        const updated = [...filtered, ...batch.map(s => ({ ...s, id: Math.random() }))];
+        localStorage.setItem(`sm_shifts_${user.email}`, JSON.stringify(updated));
+        return updated;
+      });
+    }
     setModal(null);
   };
 
-  const addTxn = (t) => {
-    const newVault = [{ ...t, id: Date.now(), date: new Date().toLocaleDateString() }, ...vault];
-    setVault(newVault);
-    localStorage.setItem(`sm_vault_data_${user.email}`, JSON.stringify(newVault));
+  const addTxn = async (t) => {
+    if (supabase) {
+      await supabase.from('vault_transactions').insert({ vault_id: vaultId, user_email: user.email, description: t.desc, amount: parseFloat(t.amt) });
+    } else {
+      const newVault = [{ ...t, id: Date.now(), date: new Date().toLocaleDateString() }, ...vault];
+      setVault(newVault);
+      localStorage.setItem(`sm_vault_data_${user.email}`, JSON.stringify(newVault));
+    }
     setModal(null);
   };
 
-  const removeTxn = (id) => {
-    const newVault = vault.filter(v => v.id !== id);
-    setVault(newVault);
-    localStorage.setItem(`sm_vault_data_${user.email}`, JSON.stringify(newVault));
+  const removeTxn = async (id) => {
+    if (supabase) {
+      await supabase.from('vault_transactions').delete().eq('id', id);
+    } else {
+      const newVault = vault.filter(v => v.id !== id);
+      setVault(newVault);
+      localStorage.setItem(`sm_vault_data_${user.email}`, JSON.stringify(newVault));
+    }
   };
 
-  const addDoc = (d) => {
-    const newDocs = [...docs, { ...d, id: Date.now() }];
-    setDocs(newDocs);
-    localStorage.setItem(`sm_docs_${user.email}`, JSON.stringify(newDocs));
+  const addDoc = async (d) => {
+    if (supabase) {
+      const { data } = await supabase.from('documents').insert({ user_email: user.email, title: d.title, expiry_date: d.expiry }).select();
+      if (data) setDocs([...docs, { ...data[0], daysLeft: Math.ceil((new Date(data[0].expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) }]);
+    } else {
+      const newDocs = [...docs, { ...d, id: Date.now() }];
+      setDocs(newDocs);
+      localStorage.setItem(`sm_docs_${user.email}`, JSON.stringify(newDocs));
+    }
     setModal(null);
   };
 
-  const clearVault = () => {
-    setVault([]);
-    localStorage.setItem(`sm_vault_data_${user.email}`, '[]');
+  const clearVault = async () => {
+    if (supabase && vaultId) {
+      await supabase.from('vault_transactions').delete().eq('vault_id', vaultId);
+    } else {
+      setVault([]);
+      localStorage.setItem(`sm_vault_data_${user.email}`, '[]');
+    }
   };
 
   if (loading) return null;
@@ -253,7 +310,8 @@ const Dashboard = ({ shifts, vault, docs, vaultId, onNavToVault }) => {
     return () => clearInterval(timer);
   }, []);
 
-  const currentShift = shifts[shifts.length - 1] || { type: 'off', title: 'No Shift', time: 'Relax Today' };
+  const todayName = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const currentShift = shifts.find(s => s.day === todayName) || { type: 'off', title: 'Off Shift', time: 'Full Day Rest' };
   
   const getBalance = () => {
     const total = vault.reduce((acc, t) => acc + (parseFloat(t.amt) || 0), 0);
@@ -331,13 +389,29 @@ const Shifts = ({ shifts, onAdd }) => {
 
   const week = getWeekDates();
 
+  const testNotif = async () => {
+    if (!('Notification' in window)) return alert('Notifications not supported');
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      new Notification('ShiftMate Intelligence', {
+        body: 'Success! Your mobile is now synced for 30-min shift alerts.',
+        icon: '/icon.png'
+      });
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fade-in">
       <div className="heading-row">
         <h2 className="page-title">Weekly <span>Roster</span></h2>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={onAdd} style={{ background: 'var(--secondary)', border: 'none', padding: '12px', borderRadius: '16px', boxShadow: '0 12px 24px -6px var(--secondary-glow)' }}>
-          <Plus size={28} color="var(--bg-dark)" />
-        </motion.button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={testNotif} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', padding: '12px', borderRadius: '16px' }}>
+            <Bell size={24} color="var(--primary)" />
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.9 }} onClick={onAdd} style={{ background: 'var(--secondary)', border: 'none', padding: '12px', borderRadius: '16px', boxShadow: '0 12px 24px -6px var(--secondary-glow)' }}>
+            <Plus size={28} color="var(--bg-dark)" />
+          </motion.button>
+        </div>
       </div>
 
       <div className="glass-card" style={{ marginBottom: '32px', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', padding: '24px 16px', border: '2px solid rgba(255,255,255,0.02)' }}>
