@@ -389,30 +389,8 @@ const Shifts = ({ shifts, onAdd }) => {
 
   const week = getWeekDates();
 
-  const testNotif = async () => {
-    console.log("Testing Notification...");
-    if (!('Notification' in window)) return alert('Error: Browser does not support Notifications.');
-    
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm === 'granted') {
-        if (!('serviceWorker' in navigator)) {
-          // Fallback for laptops/browsers without active PWA workers
-          new Notification('ShiftMate Desktop', { body: 'Success! Standard notification working.', icon: '/icon.png' });
-        } else {
-          const reg = await navigator.serviceWorker.ready;
-          await reg.showNotification('ShiftMate Intelligence', {
-            body: 'Success! Your station is now synced for 30-min alerts.',
-            icon: '/icon.png',
-            badge: '/icon.png'
-          });
-        }
-      } else {
-        alert('Blocked: Notifications are ' + perm + '. Please enable them in your browser settings.');
-      }
-    } catch (e) {
-      alert('System Error: ' + e.message);
-    }
+  const testNotif = () => {
+    alert('DEBUG: Button is working!');
   };
 
   return (
