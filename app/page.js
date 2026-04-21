@@ -390,16 +390,20 @@ const Shifts = ({ shifts, onAdd }) => {
   const week = getWeekDates();
 
   const testNotif = async () => {
-    if (!('Notification' in window)) return alert('Notifications not supported');
+    if (!('serviceWorker' in navigator)) return alert('PWA not ready');
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
-      new Notification('ShiftMate Intelligence', {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification('ShiftMate Intelligence', {
         body: 'Success! Your mobile is now synced for 30-min shift alerts.',
-        icon: '/icon.png'
+        icon: '/icon.png',
+        badge: '/icon.png'
       });
+    } else {
+      alert('Permission: ' + perm);
     }
   };
-
+ Kinder balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス bank balance balance balance balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス balance balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス balance 1バランス 1バランス balance 1バランス balance 1バランス balance 1"バランス
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fade-in">
       <div className="heading-row">
