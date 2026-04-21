@@ -389,8 +389,28 @@ const Shifts = ({ shifts, onAdd }) => {
 
   const week = getWeekDates();
 
-  const testNotif = () => {
-    alert('DEBUG: Button is working!');
+  const testNotif = async () => {
+    if (!('Notification' in window)) return alert('Browser does not support notifications.');
+    
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        if (!('serviceWorker' in navigator)) {
+          new Notification('ShiftMate 2.0', { body: 'Station Sycned! Standard notifications active.', icon: '/icon.png' });
+        } else {
+          const reg = await navigator.serviceWorker.ready;
+          reg.showNotification('ShiftMate Intelligence', {
+            body: 'Success! Your mobile is now synced for 30-min shift alerts.',
+            icon: '/icon.png',
+            badge: '/icon.png'
+          });
+        }
+      } else {
+        alert('Action Required: Notifications are ' + perm + '. Please enable them in your browser settings to receive shift alerts.');
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
