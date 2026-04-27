@@ -62,6 +62,58 @@ export default function App() {
     init();
   }, []);
 
+  // Intelligence Sentinel: Shift & Doc Alerts
+  useEffect(() => {
+    if (!user) return;
+    let lastAlertedShiftId = null;
+
+    const checkAlerts = async () => {
+      const now = new Date();
+      const today = now.toLocaleDateString('en-US', { weekday: 'long' });
+      
+      // 1. Shift Alerts (30 Min Before)
+      const myShift = shifts.find(s => s.day === today && s.notif);
+      if (myShift && myShift.time.includes('-') && myShift.id !== lastAlertedShiftId) {
+        const startTimeStr = myShift.time.split('-')[0].trim();
+        const [h, m] = startTimeStr.split(':').map(Number);
+        const shiftStart = new Date();
+        shiftStart.setHours(h, m, 0, 0);
+
+        const diffMinutes = Math.floor((shiftStart - now) / (1000 * 60));
+        
+        // Windowed check (25-31 mins) to handle browser throttling
+        if (diffMinutes <= 30 && diffMinutes >= 25) {
+          if (Notification.permission === 'granted') {
+            const reg = await navigator.serviceWorker.ready;
+            reg.showNotification('ShiftMate Alert', {
+              body: `Station Call: ${myShift.title} starts in ~${diffMinutes} minutes!`,
+              icon: '/icon.png',
+              badge: '/icon.png',
+              tag: 'shift-alert' // Prevents duplicate popups
+            });
+            lastAlertedShiftId = myShift.id;
+          }
+        }
+      }
+
+      // 2. Document Expiry Alerts (Daily Check)
+      const criticalDocs = docs.filter(d => d.daysLeft <= 60 && d.daysLeft > 0);
+      if (criticalDocs.length > 0 && now.getHours() === 10 && now.getMinutes() === 0) { // Notify at 10:00 AM
+        if (Notification.permission === 'granted') {
+          const reg = await navigator.serviceWorker.ready;
+          reg.showNotification('Legal Shield Alert', {
+            body: `Warning: ${criticalDocs.length} document(s) expiring soon!`,
+            icon: '/icon.png',
+            tag: 'doc-alert'
+          });
+        }
+      }
+    };
+
+    const interval = setInterval(checkAlerts, 60000);
+    return () => clearInterval(interval);
+  }, [shifts, docs, user]);
+
   const fetchVault = async (vId) => {
     if (!supabase) return;
     const { data } = await supabase.from('vault_transactions').select('*').eq('vault_id', vId).order('created_at', { ascending: false });
