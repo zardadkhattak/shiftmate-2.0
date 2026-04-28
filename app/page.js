@@ -33,6 +33,14 @@ export default function App() {
   const [docs, setDocs] = useState([]);
   const [vaultId, setVaultId] = useState(null);
 
+  const calcDays = (expiry) => {
+    const exp = new Date(expiry);
+    exp.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  };
+
   // Initial Data Load & Supabase Sync
   useEffect(() => {
     const init = async () => {
@@ -48,7 +56,7 @@ export default function App() {
           if (sData) setShifts(sData);
 
           const { data: dData } = await supabase.from('documents').select('*').eq('user_email', u.email);
-          if (dData) setDocs(dData.map(d => ({ ...d, daysLeft: Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) })));
+          if (dData) setDocs(dData.map(d => ({ ...d, daysLeft: calcDays(d.expiry_date) })));
 
           if (vId) fetchVault(vId);
         } else {
@@ -106,7 +114,7 @@ export default function App() {
 
       // 2. Document Expiry Heartbeat (Check once per day)
       if (lastDocCheckRef.current !== todayKey) {
-        const criticalDocs = docs.filter(d => d.daysLeft <= 60 && d.daysLeft > 0);
+        const criticalDocs = docs.filter(d => d.daysLeft <= 60);
         if (criticalDocs.length > 0) {
           if (Notification.permission === 'granted') {
             const reg = await navigator.serviceWorker.ready;
@@ -202,13 +210,25 @@ export default function App() {
   const addDoc = async (d) => {
     if (supabase) {
       const { data } = await supabase.from('documents').insert({ user_email: user.email, title: d.title, expiry_date: d.expiry }).select();
-      if (data) setDocs([...docs, { ...data[0], daysLeft: Math.ceil((new Date(data[0].expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) }]);
+      if (data) setDocs([...docs, { ...data[0], daysLeft: calcDays(data[0].expiry_date) }]);
     } else {
-      const newDocs = [...docs, { ...d, id: Date.now() }];
+      const newDoc = { ...d, id: Date.now(), daysLeft: calcDays(d.expiry) };
+      const newDocs = [...docs, newDoc];
       setDocs(newDocs);
       localStorage.setItem(`sm_docs_${user.email}`, JSON.stringify(newDocs));
     }
     setModal(null);
+  };
+
+  const removeDoc = async (id) => {
+    if (supabase) {
+      await supabase.from('documents').delete().eq('id', id);
+      setDocs(docs.filter(d => d.id !== id));
+    } else {
+      const newDocs = docs.filter(d => d.id !== id);
+      setDocs(newDocs);
+      localStorage.setItem(`sm_docs_${user.email}`, JSON.stringify(newDocs));
+    }
   };
 
   const clearVault = async () => {
@@ -232,12 +252,12 @@ export default function App() {
           {activeTab === 'home' && <Dashboard key="home" shifts={shifts} vault={vault} docs={docs} vaultId={vaultId} onNavToVault={() => setActiveTab('vault')} />}
           {activeTab === 'shifts' && <Shifts key="shifts" shifts={shifts} onAdd={() => setModal('shift')} />}
           {activeTab === 'vault' && <Vault key="vault" txns={vault} onAdd={() => setModal('vault')} onRemove={removeTxn} vaultId={vaultId} onConnect={connectVault} onClear={clearVault} />}
-          {activeTab === 'docs' && <Documents key="docs" docs={docs} onAdd={() => setModal('doc')} />}
+          {activeTab === 'docs' && <Documents key="docs" docs={docs} onAdd={() => setModal('doc')} onRemove={removeDoc} />}
         </AnimatePresence>
       </main>
 
       <Navigation active={activeTab} setActive={setActiveTab} />
-
+ Kinder balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス bank balance balance balance balance 1"バランス
       {/* Global Modals */}
       <AnimatePresence>
         {modal === 'shift' && <AddShiftModal onAdd={addShifts} onClose={() => setModal(null)} />}
@@ -382,6 +402,7 @@ const Dashboard = ({ shifts, vault, docs, vaultId, onNavToVault }) => {
   };
   
   const urgentDocs = docs.filter(d => d.daysLeft < 60).length;
+  const expiredDocs = docs.filter(d => d.daysLeft <= 0).length;
 
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase();
   const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
@@ -416,7 +437,7 @@ const Dashboard = ({ shifts, vault, docs, vaultId, onNavToVault }) => {
              <span style={{ fontSize: '11px', fontWeight: '950', color: 'var(--primary)', textAlign: 'center' }}>LINK STATION</span>
           </motion.div>
         )}
-        <StatCard label="Legal Status" value={urgentDocs > 0 ? "Warning" : "Secure"} sub={urgentDocs > 0 ? `${urgentDocs} Urgent` : "No Expiry"} color={urgentDocs > 0 ? "var(--danger)" : "var(--primary)"} />
+        <StatCard label="Legal Status" value={expiredDocs > 0 ? "EXPIRED" : (urgentDocs > 0 ? "Warning" : "Secure")} sub={expiredDocs > 0 ? `${expiredDocs} Critical` : (urgentDocs > 0 ? `${urgentDocs} Urgent` : "No Expiry")} color={expiredDocs > 0 ? "var(--danger)" : (urgentDocs > 0 ? "var(--secondary)" : "var(--primary)")} />
       </div>
 
       <h3 style={{ fontSize: '13px', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '16px', fontWeight: '900', letterSpacing: '1.5px' }}>Critical Alerts</h3>
@@ -425,7 +446,7 @@ const Dashboard = ({ shifts, vault, docs, vaultId, onNavToVault }) => {
            <AlertItem icon="🎖️" title="Setup Digital Vault" desc="Track your Civil ID & Passport status." />
         )}
         {docs.map(d => (
-           <AlertItem key={d.id} icon="📑" title={d.title} desc={`Expires in ${d.daysLeft} days`} urgent={d.daysLeft < 60} />
+           <AlertItem key={d.id} icon={d.daysLeft <= 0 ? "🚨" : "📑"} title={d.title} desc={d.daysLeft <= 0 ? "DOCUMENT EXPIRED" : `Expires in ${d.daysLeft} days`} urgent={d.daysLeft < 60} />
         ))}
       </div>
     </motion.div>
@@ -533,7 +554,7 @@ const Shifts = ({ shifts, onAdd }) => {
 };
 
 /* --- Module: Vault --- */
-const Vault = ({ txns, onAdd, onRemove, vaultId, onConnect }) => {
+const Vault = ({ txns, onAdd, onRemove, vaultId, onConnect, onClear }) => {
   const [joinCode, setJoinCode] = useState('');
   
   // Strict validation for vaultId
@@ -632,8 +653,8 @@ const Vault = ({ txns, onAdd, onRemove, vaultId, onConnect }) => {
 };
 
 /* --- Module: Documents --- */
-const Documents = ({ docs, onAdd }) => (
-  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="fade-in">
+const Documents = ({ docs, onAdd, onRemove }) => (
+  <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="fade-in" style={{ paddingBottom: '100px' }}>
     <div className="heading-row">
       <h2 className="page-title">Digital <span>Vault</span></h2>
       <motion.button whileTap={{ scale: 0.9 }} onClick={onAdd} style={{ background: 'var(--secondary)', border: 'none', padding: '12px', borderRadius: '16px' }}>
@@ -649,7 +670,7 @@ const Documents = ({ docs, onAdd }) => (
           </div>
        ) : (
          docs.map(d => (
-           <DocItem key={d.id} title={d.title} expiry={d.expiry} days={d.daysLeft} progress={d.progress} color={d.daysLeft < 60 ? 'var(--danger)' : 'var(--secondary)'} />
+           <DocItem key={d.id} id={d.id} title={d.title} expiry={d.expiry_date} days={d.daysLeft} onRemove={onRemove} />
          ))
        )}
     </div>
@@ -678,23 +699,35 @@ const AlertItem = ({ icon, title, desc, urgent }) => (
   </div>
 );
 
-const DocItem = ({ title, expiry, days, progress, color }) => (
-  <div className="glass-card" style={{ padding: '28px', borderLeft: `6px solid ${color}` }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-      <div>
-        <h3 style={{ fontSize: '20px', fontWeight: '950', letterSpacing: '-0.5px' }}>{title}</h3>
-        <p style={{ fontSize: '13px', color: 'var(--text-dim)', fontWeight: '800' }}>EXPIRE: {expiry}</p>
+const DocItem = ({ id, title, expiry, days, onRemove }) => {
+  const isExpired = days <= 0;
+  const isUrgent = days < 60 && !isExpired;
+  const color = isExpired ? 'var(--danger)' : (isUrgent ? 'var(--secondary)' : 'var(--primary)');
+  const progress = Math.max(0, Math.min(100, 100 - (days / 365) * 100));
+
+  return (
+    <div className="glass-card" style={{ padding: '28px', borderLeft: `6px solid ${color}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <h3 style={{ fontSize: '20px', fontWeight: '950', letterSpacing: '-0.5px' }}>{title}</h3>
+            <motion.button whileTap={{ scale: 0.8 }} onClick={() => confirm('Remove document?') && onRemove(id)} style={{ background: 'none', border: 'none', color: 'var(--danger)', opacity: 0.3 }}>
+              <Trash2 size={18} />
+            </motion.button>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-dim)', fontWeight: '800', marginTop: '4px' }}>EXPIRE: {new Date(expiry).toLocaleDateString()}</p>
+        </div>
+        <div style={{ textAlign: 'right', minWidth: '80px' }}>
+          <div style={{ fontSize: '28px', fontWeight: '950', color, letterSpacing: '-1px' }}>{isExpired ? "!" : days}</div>
+          <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: '950' }}>{isExpired ? "EXPIRED" : "Days Left"}</div>
+        </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: '28px', fontWeight: '950', color, letterSpacing: '-1px' }}>{days}</div>
-        <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: '950' }}>Days Remaining</div>
+      <div style={{ height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', position: 'relative', overflow: 'hidden' }}>
+        <motion.div initial={{ width: 0 }} animate={{ width: progress + '%' }} transition={{ duration: 1 }} style={{ position: 'absolute', left: 0, top: 0, height: '100%', background: color, boxShadow: `0 0 20px ${color}` }} />
       </div>
     </div>
-    <div style={{ height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', position: 'relative', overflow: 'hidden' }}>
-      <motion.div initial={{ width: 0 }} animate={{ width: progress + '%' }} transition={{ duration: 1 }} style={{ position: 'absolute', left: 0, top: 0, height: '100%', background: color, boxShadow: `0 0 20px ${color}` }} />
-    </div>
-  </div>
-);
+  );
+};
 
 /* --- Modals --- */
 const ModalOverlay = ({ title, onClose, children }) => (
@@ -846,8 +879,7 @@ const AddDocModal = ({ onAdd, onClose }) => {
 
   const handleSave = () => {
     if (!formData.expiry || !formData.title) return;
-    const { days, progress } = calculateProgress(formData.expiry);
-    onAdd({ title: formData.title, expiry: formData.expiry, daysLeft: days, progress });
+    onAdd({ title: formData.title, expiry: formData.expiry });
   };
 
   return (
