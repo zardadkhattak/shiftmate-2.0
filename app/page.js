@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Home, 
@@ -62,55 +62,66 @@ export default function App() {
     init();
   }, []);
 
+  const alertedRef = useRef(new Set());
+  const lastDocCheckRef = useRef(null);
+
   // Intelligence Sentinel: Shift & Doc Alerts
   useEffect(() => {
-    if (!user) return;
-    let lastAlertedShiftId = null;
+    if (!user || !shifts.length) return;
 
     const checkAlerts = async () => {
       const now = new Date();
       const today = now.toLocaleDateString('en-US', { weekday: 'long' });
+      const todayKey = now.toDateString();
       
-      // 1. Shift Alerts (30 Min Before)
-      const myShift = shifts.find(s => s.day === today && s.notif);
-      if (myShift && myShift.time.includes('-') && myShift.id !== lastAlertedShiftId) {
-        const startTimeStr = myShift.time.split('-')[0].trim();
-        const [h, m] = startTimeStr.split(':').map(Number);
+      // 1. Shift Alerts (Multiple Shifts per day supported)
+      const todaysShifts = shifts.filter(s => s.day.toLowerCase() === today.toLowerCase() && s.notif);
+      
+      for (const s of todaysShifts) {
+        if (!s.time.includes('-')) continue;
+        const alertId = `shift-${s.id}-${todayKey}`;
+        if (alertedRef.current.has(alertId)) continue;
+
+        const [h, m] = s.time.split('-')[0].trim().split(':').map(Number);
         const shiftStart = new Date();
         shiftStart.setHours(h, m, 0, 0);
 
         const diffMinutes = Math.floor((shiftStart - now) / (1000 * 60));
         
-        // Windowed check (25-31 mins) to handle browser throttling
-        if (diffMinutes <= 30 && diffMinutes >= 25) {
+        // Windowed check (1 to 31 mins) for better reliability
+        if (diffMinutes <= 30 && diffMinutes >= 0) {
           if (Notification.permission === 'granted') {
             const reg = await navigator.serviceWorker.ready;
-            reg.showNotification('ShiftMate Alert', {
-              body: `Station Call: ${myShift.title} starts in ~${diffMinutes} minutes!`,
+            reg.showNotification('ShiftMate: Station Call', {
+              body: `${s.title} begins in ${diffMinutes} minutes!`,
               icon: '/icon.png',
               badge: '/icon.png',
-              tag: 'shift-alert' // Prevents duplicate popups
+              tag: 'shift-alert',
+              renotify: true
             });
-            lastAlertedShiftId = myShift.id;
+            alertedRef.current.add(alertId);
           }
         }
       }
 
-      // 2. Document Expiry Alerts (Daily Check)
-      const criticalDocs = docs.filter(d => d.daysLeft <= 60 && d.daysLeft > 0);
-      if (criticalDocs.length > 0 && now.getHours() === 10 && now.getMinutes() === 0) { // Notify at 10:00 AM
-        if (Notification.permission === 'granted') {
-          const reg = await navigator.serviceWorker.ready;
-          reg.showNotification('Legal Shield Alert', {
-            body: `Warning: ${criticalDocs.length} document(s) expiring soon!`,
-            icon: '/icon.png',
-            tag: 'doc-alert'
-          });
+      // 2. Document Expiry Heartbeat (Check once per day)
+      if (lastDocCheckRef.current !== todayKey) {
+        const criticalDocs = docs.filter(d => d.daysLeft <= 60 && d.daysLeft > 0);
+        if (criticalDocs.length > 0) {
+          if (Notification.permission === 'granted') {
+            const reg = await navigator.serviceWorker.ready;
+            reg.showNotification('ShiftMate: Legal Shield', {
+              body: `Warning: ${criticalDocs.length} document(s) require attention.`,
+              icon: '/icon.png',
+              tag: 'doc-alert'
+            });
+            lastDocCheckRef.current = todayKey;
+          }
         }
       }
     };
 
-    const interval = setInterval(checkAlerts, 60000);
+    const interval = setInterval(checkAlerts, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
   }, [shifts, docs, user]);
 
@@ -388,6 +399,11 @@ const Dashboard = ({ shifts, vault, docs, vaultId, onNavToVault }) => {
         <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
           <div style={{ padding: '6px 14px', borderRadius: '24px', background: currentShift.type === 'off' ? 'rgba(255,255,255,0.05)' : 'var(--primary-glow)', color: currentShift.type === 'off' ? 'var(--text-muted)' : 'var(--primary)', fontSize: '11px', fontWeight: '900', border: '1px solid' }}>● {currentShift.title.toUpperCase()}</div>
           <span style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: '600' }}>{currentShift.time}</span>
+        </div>
+        
+        <div style={{ marginTop: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 2 }} style={{ width: '8px', height: '8px', background: 'var(--primary)', borderRadius: '50%', boxShadow: '0 0 10px var(--primary)' }} />
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>Intelligence Sentinel Active</span>
         </div>
       </div>
 
