@@ -257,7 +257,6 @@ export default function App() {
       </main>
 
       <Navigation active={activeTab} setActive={setActiveTab} />
- Kinder balance 1バランス balance 1バランス balance 1バランス 1バランス balance balance balance balance 1バランス bank balance balance balance balance 1"バランス
       {/* Global Modals */}
       <AnimatePresence>
         {modal === 'shift' && <AddShiftModal onAdd={addShifts} onClose={() => setModal(null)} />}
